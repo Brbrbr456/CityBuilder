@@ -3,6 +3,7 @@ import time
 import threading
 import telebot
 from telebot import types
+import json
 
 token = "8335377033:AAHK-ifuPPkFJwoiuDw5nLuPNZdE2bCyv_o"
 bot = telebot.TeleBot(token)
@@ -10,10 +11,11 @@ money = 0
 people = 0
 money_min = 0
 difficult = " "
+user_json = 'users.json'
 
 residential_buildings = 1
 industrial_buildings = 1
-ofice_buildings = 1
+office_buildings = 1
 
 empty_people = 0
 
@@ -24,6 +26,32 @@ def start(message):
     markup.add(btn1)
 
     bot.reply_to(message, "Добро пожаловать в игру CityBuilder. В этой игре вы сможете построить город своей мечты.", reply_markup=markup)
+
+def load_data():
+    try:
+        with open("users.json", "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_data(data):
+    with open("users.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+def get_user(user_id):
+    data = load_data()
+
+    if str(user_id) not in data:
+        data[str(user_id)] = {
+            "money": 0,
+            "people": 0,
+            "industrial_buildings": 0,
+            "residential_buildings": 0,
+            "office_buildings": 0,
+            "empty_people": 0
+        }
+        save_data(data)
+    return data
 
 
 @bot.message_handler(commands=["build"])
@@ -38,27 +66,50 @@ def build(message):
 
 @bot.message_handler(commands=["menu"])
 def menu(message):
+    user_id = message.from_user.id
+    data = get_user(user_id)
+    user = data[str(user_id)]
+
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn11 = types.KeyboardButton("Строить")
     btn12 = types.KeyboardButton("Статистика")
     markup.add(btn11,btn12)
-    bot.reply_to(message,f"Денег: {money}\n"
-                 f"Количество жителей: {people}\n", reply_markup=markup)
+    bot.reply_to(message,f"Денег: {user['money']}\n"
+                 f"Количество жителей: {user['people']}\n", reply_markup=markup)
 
 def time_money():
     global money, industrial_buildings
     while True:
         if industrial_buildings > 0:
-            income = industrial_buildings * 1000
-            money+=income
+            industrial_income = industrial_buildings * 2000
+            money+=industrial_income
+        time.sleep(30)
+
+        if office_buildings > 0:
+            ofice_income = industrial_buildings * 3000
+            money+=ofice_income
         time.sleep(30)
 
 
+def reset_values(message, money):
+    user_id = message.from_user.id
+    data = get_user(user_id)
+    user = data[str(user_id)]
+
+    user["money"] = money
+    user["people"] = 0
+    user["empty_people"] = 0
+    user["industrial_buildings"] = 0
+
+    save_data(data)
 
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
-    global money, people, difficult, residential_buildings, industrial_buildings, ofice_buildings, money_min, empty_people
+    global money, people, difficult, residential_buildings, industrial_buildings, office_buildings, money_min, empty_people
+    user_id = message.from_user.id
+    data = get_user(user_id)
+    user = data[str(user_id)]
 
     if message.text == "Начать игру":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -78,54 +129,58 @@ def handle_text(message):
                               f"Сложная: 500000$ ", reply_markup=markup)
 
     if message.text == "Лёгкая":
-        money = 500000
-        people = 0
+        reset_values(message, 500000)
         difficult = "Лёгкая"
         menu(message)
 
     if message.text == "Нормальная":
-        money = 300000
-        people = 0
+        reset_values(message, 300000)
         difficult = "Нормальная"
         menu(message)
 
     if message.text == "Сложная":
-        money = 200000
-        people = 0
+        reset_values(message, 200000)
         difficult = "Сложная"
         menu(message)
 
     if message.text == "Построить жилое здание":
-        if money >= 20000:
-            money -= 20000
+        if user["money"] >= 20000:
+            user["money"] -= 20000
             residential_people = random.randint(200, 500)
-            people += residential_people
-            empty_people += residential_people
-            bot.reply_to(message, f"Вы построили жилое здание. Количество денег на данный момент: {money}\n"
-                         f"Количество жителей: {people}")
-            residential_buildings+=1
+            user["people"] += residential_people
+            user["empty_people"] += residential_people
+            bot.reply_to(message, f"Вы построили жилое здание. Количество денег на данный момент: {user['money']}\n"
+                         f"Количество жителей: {user['people']}\n"
+                         f"Количество свободных жителей: {user['empty_people']}")
+            user["residential_buildings"] += 1
         else:
             bot.reply_to(message, f"Не хватает денег")
+        save_data(data)
 
     if message.text == "Построить промышленное здание":
-        if money >= 30000 and empty_people / industrial_buildings >= 700:
-            empty_people -= 700
-            money -= 30000
-            bot.reply_to(message, f"Вы построили промышленное здание. Количество денег на данный момент: {money}\n"
-                         f"Количество жителей: {people}")
-            industrial_buildings+=1
+        print(f"{user['empty_people']} / {(user['industrial_buildings'] + 1)}")
+        if user["money"] >= 30000 and user["empty_people"] >= 700:
+            user["empty_people"] -= 700
+            user["money"] -= 30000
+            user["industrial_buildings"] += 1
+            bot.reply_to(message, f"Вы построили промышленное здание. Количество денег на данный момент: {user['money']}\n"
+                         f"Количество жителей: {user['people']}\n"
+                         f"Количество свободных жителей: {user['empty_people']}")
         else:
             bot.reply_to(message, f"Не хватает денег или жителей.")
+        save_data(data)
 
     if message.text == "Построить офисное здание":
-        if money >= 30000 and empty_people / ofice_buildings >= 1000:
-            empty_people -= 1000
-            money -= 30000
-            bot.reply_to(message, f"Вы построили офисное здание. Количество денег на данный момент: {money}\n"
-                         f"Количество жителей: {people}")
-            ofice_buildings+=1
+        if user["money"] >= 40000 and user["empty_people"] >= 1000:
+            user["empty_people"] -= 1000
+            user["money"] -= 40000
+            user["industrial_buildings"] += 1
+            bot.reply_to(message, f"Вы построили офисное здание. Количество денег на данный момент: {user['money']}\n"
+                         f"Количество жителей: {user['people']}\n"
+                         f"Количество свободных жителей: {user['empty_people']}")
         else:
             bot.reply_to(message, f"Не хватает денег или жителей.")
+        save_data(data)
 
     if message.text == "Вернуться назад":
         menu(message)
@@ -138,7 +193,7 @@ def handle_text(message):
                      f"Количество жителей: {people}\n"
                      f"Жилых зданий: {residential_buildings-1}\n"
                      f"Промышленных зданий: {industrial_buildings-1}\n"
-                     f"Офисных зданий: {ofice_buildings-1}")
+                     f"Офисных зданий: {office_buildings-1}")
 
 
 
