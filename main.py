@@ -5,12 +5,8 @@ import telebot
 from telebot import types
 import json
 
-token = "8335377033:AAHK-ifuPPkFJwoiuDw5nLuPNZdE2bCyv_o"
+token = "8720994851:AAHE21TYS8RIuOeKkX7FyyLGoy6HSI-5W7U"
 bot = telebot.TeleBot(token)
-money = 0
-people = 0
-money_min = 0
-difficult = " "
 user_json = 'users.json'
 
 residential_buildings = 1
@@ -22,8 +18,9 @@ empty_people = 0
 @bot.message_handler(commands=["start"])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("Начать игру")
-    markup.add(btn1)
+    btn1 = types.KeyboardButton("Начать новую игру")
+    btn12 = types.KeyboardButton("Загрузить прошлую игру")
+    markup.add(btn1,btn12)
 
     bot.reply_to(message, "Добро пожаловать в игру CityBuilder. В этой игре вы сможете построить город своей мечты.", reply_markup=markup)
 
@@ -48,7 +45,9 @@ def get_user(user_id):
             "industrial_buildings": 0,
             "residential_buildings": 0,
             "office_buildings": 0,
-            "empty_people": 0
+            "empty_people": 0,
+            "industrial_income": 0,
+            "office_income": 0
         }
         save_data(data)
     return data
@@ -69,6 +68,7 @@ def menu(message):
     user_id = message.from_user.id
     data = get_user(user_id)
     user = data[str(user_id)]
+    data = load_data()
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn11 = types.KeyboardButton("Строить")
@@ -76,19 +76,23 @@ def menu(message):
     markup.add(btn11,btn12)
     bot.reply_to(message,f"Денег: {user['money']}\n"
                  f"Количество жителей: {user['people']}\n", reply_markup=markup)
+    save_data(data)
 
 def time_money():
-    global money, industrial_buildings
     while True:
-        if industrial_buildings > 0:
-            industrial_income = industrial_buildings * 2000
-            money+=industrial_income
         time.sleep(30)
+        data = load_data()
+        for user_id in data:
+            user = data[user_id]
 
-        if office_buildings > 0:
-            ofice_income = industrial_buildings * 3000
-            money+=ofice_income
-        time.sleep(30)
+            if user.get("industrial_buildings", 0) > 0:
+                industrial_income = user["industrial_buildings"] * 2000
+                user["money"] += industrial_income
+            if user.get("office_buildings", 0) > 0:
+                office_income = user["office_buildings"] * 3000
+                user["money"] += office_income
+        save_data(data)
+
 
 
 def reset_values(message, money):
@@ -100,18 +104,23 @@ def reset_values(message, money):
     user["people"] = 0
     user["empty_people"] = 0
     user["industrial_buildings"] = 0
+    user["residential_buildings"] = 0
+    user["office_buildings"] = 0
 
     save_data(data)
 
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
-    global money, people, difficult, residential_buildings, industrial_buildings, office_buildings, money_min, empty_people
     user_id = message.from_user.id
     data = get_user(user_id)
     user = data[str(user_id)]
 
-    if message.text == "Начать игру":
+    if message.text == "Загрузить прошлую игру":
+        load_data()
+        menu(message)
+
+    if message.text == "Начать новую игру":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         btn2 = types.KeyboardButton("Лёгкая")
         btn3 = types.KeyboardButton("Нормальная")
@@ -121,12 +130,12 @@ def handle_text(message):
         bot.reply_to(message, "Выберить сложность игры.", reply_markup=markup)
     if message.text == "Описание сложностей":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn6 = types.KeyboardButton("Начать игру")
+        btn6 = types.KeyboardButton("Начать новую игру")
         markup.add(btn6)
         bot.reply_to(message, f"Бюджет города:\n"
                               f"Лёгкая: 500000$ \n"
                               f"Нормальная: 300000$ \n"
-                              f"Сложная: 500000$ ", reply_markup=markup)
+                              f"Сложная: 200000$ ", reply_markup=markup)
 
     if message.text == "Лёгкая":
         reset_values(message, 500000)
@@ -158,7 +167,6 @@ def handle_text(message):
         save_data(data)
 
     if message.text == "Построить промышленное здание":
-        print(f"{user['empty_people']} / {(user['industrial_buildings'] + 1)}")
         if user["money"] >= 30000 and user["empty_people"] >= 700:
             user["empty_people"] -= 700
             user["money"] -= 30000
@@ -174,7 +182,7 @@ def handle_text(message):
         if user["money"] >= 40000 and user["empty_people"] >= 1000:
             user["empty_people"] -= 1000
             user["money"] -= 40000
-            user["industrial_buildings"] += 1
+            user["office_buildings"] += 1
             bot.reply_to(message, f"Вы построили офисное здание. Количество денег на данный момент: {user['money']}\n"
                          f"Количество жителей: {user['people']}\n"
                          f"Количество свободных жителей: {user['empty_people']}")
@@ -189,14 +197,16 @@ def handle_text(message):
         build(message)
 
     if message.text == "Статистика":
-        bot.reply_to(message, f"Денег: {money}\n"
-                     f"Количество жителей: {people}\n"
-                     f"Жилых зданий: {residential_buildings-1}\n"
-                     f"Промышленных зданий: {industrial_buildings-1}\n"
-                     f"Офисных зданий: {office_buildings-1}")
+        total_income = (user.get("industrial_buildings", 0) * 2000) + (user.get("office_buildings", 0) * 3000)
+        bot.reply_to(message, f"Денег: {user['money']}\n"
+                              f"Доход: {total_income} / 30 сек.\n"
+                     f"Количество жителей: {user['people']}\n"
+                     f"Жилых зданий: {user['residential_buildings']}\n"
+                     f"Промышленных зданий: {user['industrial_buildings']}\n"
+                     f"Офисных зданий: {user['office_buildings']}")
 
 
 
 
 threading.Thread(target=time_money, daemon=True).start()
-bot.polling(none_stop=True, interval=0)
+bot.infinity_polling()
